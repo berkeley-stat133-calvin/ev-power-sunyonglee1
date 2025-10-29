@@ -1,6 +1,11 @@
 ---
 title: "EV Power - Lab 4 Project Report"
+author : "SUN YONG LEE"
 format: typst
+execute: 
+  echo: true
+  warning: false
+  message: false
 ---
 
 # Example Solution 1
@@ -8,27 +13,119 @@ format: typst
 ## **Part 0: libraries**
 
 ```{r}
+install.packages("usmap", repos = "https://cloud.r-project.org")
+library(usmap)
+library(scales) 
+library(tidyverse)
+library(janitor)
+library(readr)
+library(stringr)
+library(dplyr)
+
+renew_2023 <- read_csv("data/renew-use-2023.csv") |> clean_names() 
+renew_2023 <- bind_rows(renew_2023)
+
+total_2023 <- read_csv("data/total-use-2023.csv") |> clean_names() |> mutate (year= 2023)
+totla_2023 <- bind_rows(total_2023)
+
+ev_2023 <- read_csv("data/ev-registrations-by-state-2023.csv") |> clean_names()
 
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question: Do states with more electric vehicle registrations in 2023 tend to have higher renewable energy shares?
 
 ## **Part 2: Data Preparation and Cleaning**
 
 ```{r}
+renew_2023 <- renew_2023 |>
+  mutate(state = str_to_upper(state)) |>
+  mutate(   
+    unit_2023 = case_when(
+      str_detect(renewable_use_2023, "USD|\\$") ~ "USD",
+      str_detect(renewable_use_2023, "kWh") ~ "kWh",
+      str_detect(renewable_use_2023, "MWh") ~ "MWh",
+      str_detect(renewable_use_2023, "MMBtu") ~ "MMBtu",
+      TRUE ~ "unknown"
+    ),
+    renewable_use_2023 = as.numeric(str_replace_all(renewable_use_2023, "[^0-9\\.]", ""))
+  )
+
+total_2023 <- total_2023 |>
+    pivot_longer(
+        cols = ak:us,
+        names_to = "state",
+        values_to = "total_use"
+    ) |>
+    mutate(state = str_to_upper(state))|>
+    filter(str_detect(tolower(energy_source), "renewable"))
+
+ev_2023 <- ev_2023 |>
+    slice(-1:-2) |>
+    rename(
+        state = electric_vehicle_registrations_by_state_2023,
+        ev_registrations = x2
+    ) |>
+    mutate(
+        state = str_to_title(str_trim(state)),
+        state = case_when(
+            state == "District Of Columbia" ~ "DC",
+            state == "Total" ~ "US",
+            TRUE ~ state.abb[match(state, state.name)]
+        )
+    ) |>
+    mutate(
+        ev_registrations = str_trim(ev_registrations),
+        ev_registrations = str_replace_all(ev_registrations, "[^0-9\\.]", ""),
+        ev_registrations = as.numeric(ev_registrations)
+    )
+
+View(renew_2023)
+View(total_2023)
+View(ev_2023)
+
 
 ```
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
 ```{r}
+energy_all <- renew_2023 |>
+    left_join(total_2023, by = "state") |>
+    left_join(ev_2023, by = "state")
+
+energy_all <- energy_all |>
+    mutate(
+        renewable_ratio_2023 = (renewable_use_2023 / total_use) *100
+    )
+
+
+View(energy_all)
 
 ```
 
 ## **Part 4: Mapping Visualization**
 
 ```{r}
+ggplot(energy_all, aes(x = ev_registrations, y = renewable_use_2023)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  scale_x_log10(labels = comma_format()) +  
+  scale_y_log10(labels = comma_format()) +  
+  labs(
+    title = "EV Registrations vs Renewable Energy Use (2023)",
+    x = "EV Registrations (log scale)",
+    y = "Renewable Energy Use (log scale)"
+  ) +
+  theme_minimal()
 
+
+
+plot_usmap(data = energy_all, values = "renewable_use_2023", color = "white") +
+  scale_fill_continuous(low = "lightblue", high = "darkgreen", name = "Renewable Use (2023)") +
+  labs(title = "Renewable Energy Use by State (2023)") +
+  theme(legend.position = "right")
 ```
+
+With the two visualization maps, I can summarize that states with higher EV registrations tend to have greater renewable energy use. In particular, California shows a remarkably higher level of renewable energy consumption compared to other states. This pattern suggests that the adoption of electric vehicles may be associated with broader investments in clean and renewable energy infrastructure.
